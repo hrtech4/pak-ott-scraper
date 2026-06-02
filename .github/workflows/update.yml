@@ -1,0 +1,44 @@
+name: 🔄 Auto Update Pakistani OTT Channels
+
+on:
+  schedule:
+    - cron: '0 * * * *'   # Every hour automatically
+  workflow_dispatch:        # Manual trigger from GitHub UI
+
+permissions:
+  contents: write           # Needed to commit output files back
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout repo
+        uses: actions/checkout@v4
+
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: 📦 Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: 🕵️ Run scraper
+        env:
+          TAMASHA_EMAIL: ${{ secrets.TAMASHA_EMAIL }}
+          TAMASHA_PASSWORD: ${{ secrets.TAMASHA_PASSWORD }}
+          TAPMAD_EMAIL: ${{ secrets.TAPMAD_EMAIL }}
+          TAPMAD_PASSWORD: ${{ secrets.TAPMAD_PASSWORD }}
+          MYCO_EMAIL: ${{ secrets.MYCO_EMAIL }}
+          MYCO_PASSWORD: ${{ secrets.MYCO_PASSWORD }}
+        run: python main.py --all --format both
+
+      - name: 📝 Commit & push updated playlist
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add output/
+          git diff --staged --quiet || git commit -m "🔄 Auto-update channels [$(date -u '+%Y-%m-%d %H:%M UTC')]"
+          git push
