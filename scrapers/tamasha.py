@@ -1,94 +1,60 @@
-"""
-tamasha.py — Scraper for Tamasha.tv live channels.
-
-Tamasha loads channel data via a REST API after initial page load.
-We intercept the API endpoint to get stream tokens directly.
-
-Reverse-engineered endpoints (may change):
-  - Channel list: GET https://tamasha.tv/api/v2/livetv/channels
-  - Stream URL:   POST https://tamasha.tv/api/v2/livetv/stream/{channel_slug}
-"""
-
 import requests
-from scrapers.base import BaseScraper, Channel
 
+OUTPUT_FILE = "Tamasha.m3u"
+CDN_BASE = "https://cdn22lhr.tamashaweb.com:8087/jazzauth"
+USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0 Safari/537.36"
+REFERER = "https://tamashaweb.com/"
 
-class TamashaScaper(BaseScraper):
+CHANNELS = [
+    {"slug": "ARYdigital",       "name": "ARY Digital",          "category": "Entertainment"},
+    {"slug": "humtv",            "name": "HUM TV",               "category": "Entertainment"},
+    {"slug": "BOLEntertainment", "name": "BOL Entertainment",    "category": "Entertainment"},
+    {"slug": "GeoEntertainment", "name": "Geo Entertainment",    "category": "Entertainment"},
+    {"slug": "GreenTV",          "name": "Green Entertainment",  "category": "Entertainment"},
+    {"slug": "ExpressEnt",       "name": "Express Entertainment","category": "Entertainment"},
+    {"slug": "APlus",            "name": "A Plus",               "category": "Entertainment"},
+    {"slug": "urdu1",            "name": "Urdu 1",               "category": "Entertainment"},
+    {"slug": "AryZindagi",       "name": "ARY Zindagi",          "category": "Entertainment"},
+    {"slug": "HumSitaray",       "name": "HUM Sitaray",          "category": "Entertainment"},
+    {"slug": "TVOne",            "name": "TV One",               "category": "Entertainment"},
+    {"slug": "GeoNews",          "name": "Geo News",             "category": "News"},
+    {"slug": "ARYNews",          "name": "ARY News",             "category": "News"},
+    {"slug": "BOLNews",          "name": "BOL News",             "category": "News"},
+    {"slug": "HumNews",          "name": "HUM News",             "category": "News"},
+    {"slug": "SamaaNews",        "name": "Samaa TV",             "category": "News"},
+    {"slug": "DunyaNews",        "name": "Dunya News",           "category": "News"},
+    {"slug": "AajNews",          "name": "Aaj News",             "category": "News"},
+    {"slug": "ExpressNews",      "name": "Express News",         "category": "News"},
+    {"slug": "92News",           "name": "92 News",              "category": "News"},
+    {"slug": "DawnNews",         "name": "Dawn News",            "category": "News"},
+    {"slug": "PTVSports",        "name": "PTV Sports",           "category": "Sports"},
+    {"slug": "GeoSuper",         "name": "Geo Super",            "category": "Sports"},
+    {"slug": "ASports",          "name": "A Sports",             "category": "Sports"},
+    {"slug": "PTVHome",          "name": "PTV Home",             "category": "General"},
+    {"slug": "PTVNews",          "name": "PTV News",             "category": "News"},
+    {"slug": "ARYQtv",           "name": "ARY Qtv",              "category": "Islamic"},
+    {"slug": "PeaceTV",          "name": "Peace TV",             "category": "Islamic"},
+]
 
-    PLATFORM_NAME = "tamasha"
-    BASE_URL = "https://tamasha.tv"
-    API_BASE = "https://tamasha.tv/api/v2"
+def main():
+    print("[*] Building Tamasha playlist...")
+    lines = ["#EXTM3U"]
 
-    CHANNEL_LIST_URL = f"{API_BASE}/livetv/channels"
-    STREAM_URL_TEMPLATE = f"{API_BASE}/livetv/stream/{{slug}}"
+    for ch in CHANNELS:
+        slug = ch["slug"]
+        name = ch["name"]
+        category = ch["category"]
+        url = f"{CDN_BASE}/{slug}-abr/playlist.m3u8"
 
-    def __init__(self, credentials=None, timeout=15):
-        super().__init__(credentials, timeout)
-        self.session = requests.Session()
-        self.session.headers.update(self._build_headers())
+        lines.append(f'#EXTINF:-1 tvg-id="tamasha-{slug.lower()}" tvg-name="{name}" tvg-logo="" group-title="Tamasha - {category}",{name}')
+        lines.append(f"#EXTVLCOPT:http-user-agent={USER_AGENT}")
+        lines.append(f"#EXTVLCOPT:http-referrer={REFERER}")
+        lines.append(url)
 
-    def _build_headers(self) -> dict:
-        headers = super()._build_headers()
-        headers.update({
-            "Origin": self.BASE_URL,
-            "X-Requested-With": "XMLHttpRequest",
-        })
-        return headers
+    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
 
-    def get_channels(self) -> list[Channel]:
-        """Fetch channel list and resolve each stream URL."""
-        channels = []
+    print(f"[+] Saved: {OUTPUT_FILE} ({len(CHANNELS)} channels)")
 
-        try:
-            resp = self.session.get(self.CHANNEL_LIST_URL, timeout=self.timeout)
-            resp.raise_for_status()
-            data = resp.json()
-        except Exception as e:
-            print(f"[Tamasha] Failed to fetch channel list: {e}")
-            return channels
-
-        # Adjust key names based on actual API response shape
-        channel_list = data.get("data", data.get("channels", []))
-
-        for item in channel_list:
-            slug = item.get("slug") or item.get("id")
-            name = item.get("title") or item.get("name", "Unknown")
-            logo = item.get("logo") or item.get("thumbnail")
-            category = item.get("category", {}).get("name", "General") \
-                        if isinstance(item.get("category"), dict) \
-                        else item.get("category", "General")
-
-            stream_url = self._get_stream_url(slug)
-            if not stream_url:
-                print(f"[Tamasha] Skipping '{name}' — no stream URL")
-                continue
-
-            channels.append(Channel(
-                id=f"tamasha-{slug}",
-                name=name,
-                platform=self.PLATFORM_NAME,
-                stream_url=stream_url,
-                category=category,
-                logo=logo,
-            ))
-
-        print(f"[Tamasha] Found {len(channels)} channels")
-        return channels
-
-    def _get_stream_url(self, slug: str) -> str | None:
-        """Request a playback URL for a specific channel slug."""
-        url = self.STREAM_URL_TEMPLATE.format(slug=slug)
-        try:
-            resp = self.session.post(url, timeout=self.timeout)
-            resp.raise_for_status()
-            data = resp.json()
-            # Common response keys — adjust to actual API
-            return (
-                data.get("stream_url")
-                or data.get("url")
-                or data.get("hls_url")
-                or data.get("data", {}).get("stream_url")
-            )
-        except Exception as e:
-            print(f"[Tamasha] Stream URL error for '{slug}': {e}")
-            return None
+if __name__ == "__main__":
+    main()
