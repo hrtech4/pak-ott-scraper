@@ -1,8 +1,4 @@
-requests>=2.31.0
-httpx>=0.27.0
+aiohttp>=3.9.0
+aiofiles>=23.0.0
 beautifulsoup4>=4.12.0
-lxml>=5.2.0
-m3u8>=4.0.0
-python-dotenv>=1.0.0
-rich>=13.7.0
-playwright>=1.44.0   # optional: for JS-heavy pages
+lxml>=5.0.0

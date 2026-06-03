@@ -1,77 +1,171 @@
 #!/usr/bin/env python3
 """
-main.py — CLI entry point for the Pakistani OTT Live Channel Scraper.
-
-Usage:
-  python main.py --all
-  python main.py --platform tamasha --format m3u
-  python main.py --platform tapmad --output ./my.m3u
+Pakistani OTT Live TV Channel Scraper
+Scrapes live TV channels from Tamasha, Tapmad, MyCo, ShoqPK
+Auto-updates every 30 minutes, removes dead links, adds new ones.
 """
 
-import argparse
+import asyncio
+import json
+import logging
 import os
-from dotenv import load_dotenv
-from scrapers import PLATFORM_MAP
-from utils.m3u_exporter import export_m3u
-from utils.json_exporter import export_json
+import sys
+import time
+from datetime import datetime, timezone
+from pathlib import Path
 
-load_dotenv()
+from scrapers.tamasha import TamashaScraer
+from scrapers.tapmad import TapmadScraper
+from scrapers.myco import MyCoScraper
+from scrapers.shoqpk import ShoqPKScraper
+from utils.validator import ChannelValidator
+from utils.m3u_builder import M3UBuilder
+from utils.logger import setup_logger
+
+# ── Config ────────────────────────────────────────────────────────────────────
+OUTPUT_DIR = Path("output")
+LOGS_DIR   = Path("logs")
+UPDATE_INTERVAL_MINS = 30
+
+SCRAPERS = [
+    TamashaScraer,
+    TapmadScraper,
+    MyCoScraper,
+    ShoqPKScraper,
+]
+
+logger = setup_logger("main")
 
 
-def build_credentials(platform: str) -> dict:
-    prefix = platform.upper()
-    return {
-        "email": os.getenv(f"{prefix}_EMAIL", ""),
-        "password": os.getenv(f"{prefix}_PASSWORD", ""),
+async def run_scraper(scraper_class):
+    """Run a single scraper and return its channels."""
+    scraper = scraper_class()
+    name = scraper.name
+    try:
+        logger.info(f"[{name}] Starting scrape…")
+        channels = await scraper.scrape()
+        logger.info(f"[{name}] Found {len(channels)} channels")
+        return channels
+    except Exception as exc:
+        logger.error(f"[{name}] Scraper failed: {exc}")
+        return []
+
+
+async def validate_channels(channels):
+    """Validate all channels concurrently, removing dead streams."""
+    validator = ChannelValidator()
+    logger.info(f"Validating {len(channels)} channels…")
+    live_channels = await validator.validate_all(channels)
+    dead = len(channels) - len(live_channels)
+    logger.info(f"Validation complete: {len(live_channels)} live, {dead} dead (removed)")
+    return live_channels
+
+
+def load_existing_channels():
+    """Load previously saved channels for diff/merge."""
+    path = OUTPUT_DIR / "channels.json"
+    if path.exists():
+        with open(path) as f:
+            return json.load(f)
+    return []
+
+
+def save_channels(channels):
+    """Persist channels to JSON and M3U files."""
+    OUTPUT_DIR.mkdir(exist_ok=True)
+
+    # JSON
+    json_path = OUTPUT_DIR / "channels.json"
+    with open(json_path, "w") as f:
+        json.dump(channels, f, indent=2, ensure_ascii=False)
+
+    # M3U playlist
+    m3u_path = OUTPUT_DIR / "channels.m3u"
+    M3UBuilder.write(channels, m3u_path)
+
+    # Per-source M3U files
+    sources = {}
+    for ch in channels:
+        sources.setdefault(ch.get("source", "unknown"), []).append(ch)
+    for src, chs in sources.items():
+        M3UBuilder.write(chs, OUTPUT_DIR / f"{src.lower()}.m3u")
+
+    # Stats / metadata
+    meta = {
+        "last_updated": datetime.now(timezone.utc).isoformat(),
+        "total_channels": len(channels),
+        "sources": {src: len(chs) for src, chs in sources.items()},
     }
+    with open(OUTPUT_DIR / "meta.json", "w") as f:
+        json.dump(meta, f, indent=2)
+
+    logger.info(f"Saved {len(channels)} channels → {OUTPUT_DIR}/")
+    return meta
 
 
-def run(platforms: list[str], fmt: str, output: str | None):
+async def scrape_cycle():
+    """One full scrape → validate → save cycle."""
+    logger.info("=" * 60)
+    logger.info(f"Scrape cycle started at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+
+    # 1. Scrape all sources concurrently
+    tasks = [run_scraper(cls) for cls in SCRAPERS]
+    results = await asyncio.gather(*tasks)
+
+    # 2. Merge, deduplicate by stream URL
+    seen_urls = set()
     all_channels = []
+    for channel_list in results:
+        for ch in channel_list:
+            url = ch.get("url", "")
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                all_channels.append(ch)
 
-    for platform_name in platforms:
-        cls = PLATFORM_MAP.get(platform_name)
-        if not cls:
-            print(f"[!] Unknown platform: {platform_name}")
-            continue
+    logger.info(f"Total unique channels after merge: {len(all_channels)}")
 
-        print(f"\n── Scraping {platform_name.upper()} ──")
-        scraper = cls(credentials=build_credentials(platform_name))
-        scraper.login()
-        channels = scraper.get_channels()
-        all_channels.extend(channels)
+    # 3. Validate (remove dead streams)
+    live_channels = await validate_channels(all_channels)
 
-    if not all_channels:
-        print("\nNo channels found.")
-        return
+    # 4. Load previous, detect diff
+    old_channels = load_existing_channels()
+    old_urls = {ch["url"] for ch in old_channels}
+    new_urls  = {ch["url"] for ch in live_channels}
+    added   = new_urls - old_urls
+    removed = old_urls - new_urls
+    logger.info(f"Diff → +{len(added)} new, -{len(removed)} removed")
 
-    print(f"\n✅ Total channels collected: {len(all_channels)}")
+    # 5. Sort by source then name
+    live_channels.sort(key=lambda c: (c.get("source", ""), c.get("name", "")))
 
-    if fmt in ("m3u", "both"):
-        m3u_path = output if (output and output.endswith(".m3u")) else "output/playlist.m3u"
-        export_m3u(all_channels, m3u_path)
+    # 6. Save
+    meta = save_channels(live_channels)
+    meta["added"]   = len(added)
+    meta["removed"] = len(removed)
 
-    if fmt in ("json", "both"):
-        json_path = output if (output and output.endswith(".json")) else "output/channels.json"
-        export_json(all_channels, json_path)
+    logger.info("Scrape cycle complete.")
+    return meta
+
+
+async def watch_loop():
+    """Continuous loop: scrape every UPDATE_INTERVAL_MINS minutes."""
+    while True:
+        try:
+            await scrape_cycle()
+        except Exception as exc:
+            logger.exception(f"Cycle crashed: {exc}")
+        logger.info(f"Next update in {UPDATE_INTERVAL_MINS} minutes…")
+        await asyncio.sleep(UPDATE_INTERVAL_MINS * 60)
 
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="🇵🇰 Pakistani OTT Live Channel Scraper"
-    )
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--all", action="store_true", help="Scrape all supported platforms")
-    group.add_argument("--platform", choices=list(PLATFORM_MAP.keys()), help="Scrape a specific platform")
-
-    parser.add_argument("--format", choices=["m3u", "json", "both"], default="both",
-                        help="Output format (default: both)")
-    parser.add_argument("--output", type=str, help="Custom output file path")
-
-    args = parser.parse_args()
-
-    platforms = list(PLATFORM_MAP.keys()) if args.all else [args.platform]
-    run(platforms, args.format, args.output)
+    LOGS_DIR.mkdir(exist_ok=True)
+    if "--once" in sys.argv:
+        # Single run (used by GitHub Actions)
+        asyncio.run(scrape_cycle())
+    else:
+        # Continuous daemon mode
+        asyncio.run(watch_loop())
 
 
 if __name__ == "__main__":

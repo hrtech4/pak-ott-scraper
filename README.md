@@ -1,181 +1,162 @@
-# 🇵🇰 Pakistani OTT Live Channel Scraper
+# 📺 Pakistani OTT Live TV Scraper
 
-A Python-based scraper to extract live TV channel stream URLs from Pakistani OTT platforms.
+> Auto-scrapes live TV channels from Pakistani streaming platforms — updated every **30 minutes** via GitHub Actions.
 
-> ⚠️ **Disclaimer**: This project is intended for **personal, educational, and research purposes only**. Respect each platform's Terms of Service. Do not use for commercial redistribution of content.
+![Live Channels](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/YOUR_USERNAME/pk-ott-scraper/main/output/badge.json&style=flat-square)
+![Update Status](https://img.shields.io/github/actions/workflow/status/YOUR_USERNAME/pk-ott-scraper/update.yml?style=flat-square&label=Auto-Update)
+![License](https://img.shields.io/github/license/YOUR_USERNAME/pk-ott-scraper?style=flat-square)
 
 ---
 
-## 📺 Supported Platforms
+## 🎯 Sources
 
 | Platform | URL | Status |
 |----------|-----|--------|
-| Tamasha | [tamasha.tv](https://tamasha.tv) | ✅ Supported |
-| Tapmad | [tapmad.com](https://tapmad.com) | ✅ Supported |
-| MyCo | [myco.com.pk](https://myco.com.pk) | ✅ Supported |
+| **Tamasha** | tamasha.tv | ✅ Active |
+| **Tapmad** | tapmad.com | ✅ Active |
+| **MyCo** | myco.io | ✅ Active |
+| **ShoqPK** | shoq.pk | ✅ Active |
 
 ---
 
-## 🚀 Features
+## 📁 Output Files
 
-- 🔴 Extract live HLS/DASH stream URLs
-- 📋 Export to M3U playlist format
-- 🗂️ Export to JSON for custom integrations
-- 🔁 Scheduled auto-refresh (streams expire)
-- 🧩 Modular scraper design — easy to add new platforms
-- 🔒 Optional login support for premium streams
+All files are in the [`output/`](./output/) directory:
 
----
+| File | Description |
+|------|-------------|
+| `channels.m3u` | Combined M3U playlist (all sources) |
+| `tamasha.m3u` | Tamasha channels only |
+| `tapmad.m3u` | Tapmad channels only |
+| `myco.m3u` | MyCo channels only |
+| `shoqpk.m3u` | ShoqPK channels only |
+| `channels.json` | Full JSON with metadata |
+| `meta.json` | Stats: total, per-source counts, last update time |
 
-## 📁 Project Structure
+### 📡 M3U Playlist URLs (use in any IPTV player)
 
 ```
-pak-ott-scraper/
-├── scrapers/
-│   ├── __init__.py
-│   ├── base.py          # Abstract base scraper class
-│   ├── tamasha.py       # Tamasha.tv scraper
-│   ├── tapmad.py        # Tapmad.com scraper
-│   └── myco.py          # MyCo.com.pk scraper
-├── utils/
-│   ├── __init__.py
-│   ├── m3u_exporter.py  # Export channels to M3U playlist
-│   ├── json_exporter.py # Export channels to JSON
-│   └── helpers.py       # Shared utility functions
-├── output/              # Generated M3U/JSON files saved here
-├── docs/
-│   ├── tamasha.md       # Platform-specific notes
-│   ├── tapmad.md
-│   └── myco.md
-├── main.py              # CLI entry point
-├── config.py            # Configuration (headers, tokens, timeouts)
-├── requirements.txt
-├── .env.example
-├── .gitignore
-└── README.md
+# All channels
+https://raw.githubusercontent.com/YOUR_USERNAME/pk-ott-scraper/main/output/channels.m3u
+
+# Tamasha only
+https://raw.githubusercontent.com/YOUR_USERNAME/pk-ott-scraper/main/output/tamasha.m3u
+
+# Tapmad only
+https://raw.githubusercontent.com/YOUR_USERNAME/pk-ott-scraper/main/output/tapmad.m3u
+
+# MyCo only
+https://raw.githubusercontent.com/YOUR_USERNAME/pk-ott-scraper/main/output/myco.m3u
+
+# ShoqPK only
+https://raw.githubusercontent.com/YOUR_USERNAME/pk-ott-scraper/main/output/shoqpk.m3u
 ```
 
 ---
 
-## ⚙️ Installation
+## ✨ Features
 
+- 🕷️ **Multi-source scraping** — Tamasha, Tapmad, MyCo, ShoqPK
+- ✅ **Dead link removal** — every stream is validated (HTTP + M3U check)
+- 🔄 **Auto-update** — GitHub Actions cron runs every 30 minutes
+- 🆕 **New channel detection** — diff logged on each cycle
+- 📋 **M3U + JSON output** — works in VLC, Kodi, TiviMate, OTT Navigator
+- 🪵 **Rotating logs** — stored in `logs/` (5 MB × 3 files)
+
+---
+
+## 🚀 Quick Start
+
+### Run locally (one-shot)
 ```bash
-git clone https://github.com/yourusername/pak-ott-scraper.git
-cd pak-ott-scraper
-
-python -m venv venv
-source venv/bin/activate      # Windows: venv\Scripts\activate
-
+git clone https://github.com/YOUR_USERNAME/pk-ott-scraper
+cd pk-ott-scraper
 pip install -r requirements.txt
-
-cp .env.example .env          # Add credentials if needed
+python main.py --once
 ```
 
----
-
-## 🖥️ Usage
-
-### Scrape all platforms
+### Run as daemon (updates every 30 min)
 ```bash
-python main.py --all
+python main.py
 ```
 
-### Scrape a specific platform
+### Docker
 ```bash
-python main.py --platform tamasha
-python main.py --platform tapmad
-python main.py --platform myco
-```
-
-### Export formats
-```bash
-python main.py --all --format m3u        # Save as playlist.m3u
-python main.py --all --format json       # Save as channels.json
-python main.py --all --format both       # Save both (default)
-```
-
-### Output to custom path
-```bash
-python main.py --all --output ./my-playlist.m3u
+docker build -t pk-ott-scraper .
+docker run --rm -v $(pwd)/output:/app/output pk-ott-scraper
 ```
 
 ---
 
-## 📄 Output Example (M3U)
+## 🏗️ Project Structure
 
-```m3u
-#EXTM3U
-#EXTINF:-1 tvg-id="geo-news" tvg-name="Geo News" tvg-logo="https://..." group-title="News",Geo News
-https://stream.tamasha.tv/live/geo-news/index.m3u8
-
-#EXTINF:-1 tvg-id="ary-news" tvg-name="ARY News" tvg-logo="https://..." group-title="News",ARY News
-https://cdn.tapmad.com/live/ary/playlist.m3u8
+```
+pk-ott-scraper/
+├── main.py                  # Orchestrator
+├── requirements.txt
+├── Dockerfile
+├── scrapers/
+│   ├── base.py              # Base scraper class
+│   ├── tamasha.py           # Tamasha.tv scraper
+│   ├── tapmad.py            # Tapmad.com scraper
+│   ├── myco.py              # MyCo.io scraper
+│   └── shoqpk.py            # ShoqPK.pk scraper
+├── utils/
+│   ├── validator.py         # Async HLS stream validator
+│   ├── m3u_builder.py       # M3U playlist writer
+│   └── logger.py            # Rotating file logger
+├── scripts/
+│   ├── commit_summary.py    # CI commit message helper
+│   └── gen_badge.py         # README badge generator
+├── .github/
+│   └── workflows/
+│       └── update.yml       # Auto-update GitHub Action
+└── output/                  # Generated (committed by CI)
+    ├── channels.m3u
+    ├── channels.json
+    ├── meta.json
+    └── badge.json
 ```
 
 ---
 
-## 📄 Output Example (JSON)
+## ⚙️ GitHub Actions Setup
 
-```json
-[
-  {
-    "id": "geo-news",
-    "name": "Geo News",
-    "platform": "tamasha",
-    "category": "News",
-    "logo": "https://...",
-    "stream_url": "https://stream.tamasha.tv/live/geo-news/index.m3u8",
-    "drm": false,
-    "refreshed_at": "2025-01-01T12:00:00Z"
-  }
-]
-```
+The workflow runs automatically. No secrets needed — it uses the built-in `GITHUB_TOKEN`.
+
+To enable write access:
+1. Go to **Settings → Actions → General**
+2. Set **Workflow permissions** to **"Read and write permissions"**
+
+To trigger manually: **Actions → 🔄 Auto-Update Channels → Run workflow**
 
 ---
 
-## 🔧 Configuration (`config.py`)
+## 🔌 IPTV Player Setup
 
-```python
-REQUEST_TIMEOUT = 15       # seconds
-RETRY_ATTEMPTS = 3
-STREAM_REFRESH_INTERVAL = 3600  # seconds (1 hour)
-USER_AGENT = "Mozilla/5.0 ..."
-```
-
----
-
-## 🧩 Adding a New Platform
-
-1. Create `scrapers/newplatform.py` extending `BaseScraper`
-2. Implement `get_channels()` and `get_stream_url(channel_id)`
-3. Register it in `scrapers/__init__.py`
-4. Add to the platform map in `main.py`
-
-See [docs/adding-platform.md](docs/adding-platform.md) for full guide.
+| Player | How to add |
+|--------|-----------|
+| **VLC** | Media → Open Network Stream → paste M3U URL |
+| **Kodi** | PVR IPTV Simple Client → M3U playlist URL |
+| **TiviMate** | Add playlist → paste M3U URL |
+| **OTT Navigator** | Add source → M3U URL |
+| **GSE Smart IPTV** | Remote Playlists → paste M3U URL |
 
 ---
 
-## 🛠️ Tech Stack
+## ⚠️ Legal Disclaimer
 
-- **Python 3.9+**
-- `requests` / `httpx` — HTTP client
-- `playwright` or `selenium` — JS-rendered pages
-- `beautifulsoup4` — HTML parsing
-- `m3u8` — M3U playlist handling
-- `python-dotenv` — Environment config
-- `rich` — Pretty CLI output
+This tool scrapes **publicly accessible** stream endpoints from OTT platforms for **personal/research use only**. Respect each platform's Terms of Service. The maintainers are not responsible for misuse. Commercial redistribution of scraped content is prohibited.
 
 ---
 
 ## 🤝 Contributing
 
-PRs welcome! Please:
-- Follow the `BaseScraper` interface
-- Add platform docs under `/docs`
-- Test before submitting
+PRs welcome! To add a new source:
+1. Create `scrapers/newsource.py` extending `BaseScraper`
+2. Add it to `SCRAPERS` list in `main.py`
+3. Submit a PR
 
 ---
 
-## 📜 License
-
-MIT License. See [LICENSE](LICENSE).
+*Auto-updated by GitHub Actions • Last update visible in `output/meta.json`*
